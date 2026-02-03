@@ -1,0 +1,905 @@
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Document</title>
+        
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                background-color: #222;
+            }
+            canvas {
+                border: 1px solid #555;
+            }
+            </style>
+    </head>
+
+        <body>
+
+            <canvas id="canvas" height="" width=""></canvas>
+                
+
+                <script>
+                    /*context.clearRect(0, 0, canvas.width, canvas.height);*/
+
+                    
+                    const amount_of_tiles=26;
+                    function sleep(time) {
+                        return new Promise((resolve) => setTimeout(resolve, time));
+                    }
+
+                    "use strict"
+
+                    let canvas = document.getElementById("canvas")
+                    let context = canvas.getContext("2d")
+
+                    canvas.width  = window.innerHeight;
+                    canvas.height = window.innerHeight;
+                    let score = 0
+                    let lives = 3
+
+                    let player_x = amount_of_tiles/2;
+                    let player_y = amount_of_tiles/2;
+
+                    let player = {
+                        x: player_x*20+10,
+                        y: player_y*20+10,
+                        mouth_open: false,
+                        /*radius: 9*/
+
+
+                    };
+
+                    let mouth_i=0;
+                    let player_render_x = player.x;
+                    let player_render_y = player.y;
+                    function drawPlayer(x, y, angle) {
+                        const r = canvas.height / amount_of_tiles / 2.3;
+
+                        context.save();
+
+
+                        context.translate(x, y);
+                        context.rotate(angle);
+
+
+                        context.fillStyle = "gold";
+                        context.beginPath();
+
+
+
+                        if (!player.mouth_open) {
+
+                            context.arc(0, 0, r, 0, Math.PI * 2);
+                        } else {
+
+                            context.arc(0, 0, r, 0.2 * Math.PI, 1.8 * Math.PI);
+                        }
+
+                        context.lineTo(0, 0);
+                        context.closePath();
+
+                        context.fill();
+                        context.restore();
+                        mouth_i+=1;
+                        if (mouth_i==8){
+                            player.mouth_open = !player.mouth_open;
+                            mouth_i=0;
+                        }
+                    }
+
+
+
+
+
+//found the original ghost drawing code on stackoverflow, edited to make it scalable and able to choose the oclor
+                    function drawGhost( x, y, scale = 1, color) {
+                        context.save();
+                        context.translate(x, y);
+                        context.scale(scale, scale);
+
+                        //body
+                        context.beginPath();
+                        context.arc(100, 70, 50, 0, Math.PI, true);
+                        context.lineTo(50, 120);
+                        context.quadraticCurveTo(60, 130, 70, 120);
+                        context.quadraticCurveTo(80, 130, 90, 120);
+                        context.quadraticCurveTo(100, 130, 110, 120);
+                        context.quadraticCurveTo(120, 130, 130, 120);
+                        context.lineTo(150, 120);
+                        context.closePath();
+                        context.fillStyle = color;
+                        context.fill();
+
+                        // Eyes (white)
+                        context.beginPath();
+                        context.arc(80, 60, 10, 0, 2 * Math.PI);
+                        context.arc(120, 60, 10, 0, 2 * Math.PI);
+                        context.fillStyle = 'white';
+                        context.fill();
+
+                        // Pupils
+                        context.beginPath();
+                        context.arc(80, 60, 5, 0, 2 * Math.PI);
+                        context.arc(120, 60, 5, 0, 2 * Math.PI);
+                        context.fillStyle = 'black';
+                        context.fill();
+
+                        context.restore();
+                    }   
+
+                    let current_x=0;
+                    let current_y=0;
+                    /*I HATE THIS PIECE OF CODE
+
+                    I DIDN'T KNOW IT WAS CAPTURING THE ABSOLUTE HTML PAGE COORDINATES 
+                    INSTEAD OF THE CANVAS ONES
+
+
+                    canvas.addEventListener("pointerdown",pos=>{
+                        current_x=pos.clientX;
+                        current_y=pos.clientY;
+
+                    });*/
+                    mode="keyboard"
+                    canvas.addEventListener("pointermove", (e) => {
+                        
+                        const rect = canvas.getBoundingClientRect();
+
+                        current_x = (e.clientX - rect.left) * (canvas.width / rect.width);
+                        current_y = (e.clientY - rect.top)  * (canvas.height / rect.height);
+                    });
+                    canvas.addEventListener("pointerdown", (e) => {
+                        mode="cursor"
+                    });
+
+                    playerIsCaught=false;
+                    class Ghost {
+                        constructor(tileX, tileY, color) {
+                            this.tileX = tileX;
+                            this.tileY = tileY;
+                            this.color = color;
+
+                            this.renderX = 0;
+                            this.renderY = 0;
+
+                            this.distance_to_target=0;
+                            this.target_x=0;
+                            this.target_y=0;
+
+                        }
+
+                        pathfinding(target_x, target_y){
+
+                            
+                            const array_of_directions=[];
+                            if (fps%(movingSpeed*1.3)==0){
+                                array_of_directions.push(findDistance(this.tileX+1, this.tileY, target_x, target_y));
+                                array_of_directions.push(findDistance(this.tileX-1, this.tileY, target_x, target_y));
+                                array_of_directions.push(findDistance(this.tileX, this.tileY+1, target_x, target_y));
+                                array_of_directions.push(findDistance(this.tileX, this.tileY-1, target_x, target_y));
+
+                                const min_distance=Math.min(...array_of_directions);
+
+
+                                
+                                let direction_index=array_of_directions.indexOf(min_distance);
+                                if (Math.floor(Math.random() * 15) == 0){
+                                    direction_index=Math.floor(Math.random() * 3);
+                                //this is just random movement to prevent them from stucking together
+                                }
+                                if (direction_index==0){
+                                    this.tileX+=1;
+                                }
+                                else if (direction_index==1){
+                                    this.tileX-=1;
+                                }
+                                else if (direction_index==2){
+                                    this.tileY+=1;
+                                }
+                                else if (direction_index==3){
+                                    this.tileY-=1;
+                                }
+
+
+                            }
+
+
+                        }
+
+
+
+                        do(){
+
+                        if (this.tileX==player_x && this.tileY==player_y){
+                            playerIsCaught=true;
+                        }
+                            //IF THEY ARE CLOSE, THEY BEGIN CHASING, OTHERWISE THEY ARE WALKING RANDOMLY
+                        if (findDistance(this.tileX, this.tileY,player_x, player_y)<10){
+                            this.target_x=player_x;
+                            this.target_y=player_y;
+
+
+                            }
+
+
+                        else{
+                            this.distance_to_target=findDistance(this.tileX, this.tileY, this.target_x, this.target_y);
+                            if (this.distance_to_target<2){
+                                this.target_x=Math.floor(Math.random() * (amount_of_tiles-1))+1;
+                                this.target_y=Math.floor(Math.random() * (amount_of_tiles-1))+1;
+
+                                this.distance_to_target=findDistance(this.tileX, this.tileY, this.target_x, this.target_y);
+                            }
+                            
+                        }
+                            
+                        this.pathfinding(this.target_x, this.target_y);
+                        
+
+                    
+                }
+
+
+                        update(canvas, amount_of_tiles) {
+                            const tile = canvas.height / amount_of_tiles;
+
+                            const targetX = this.tileX * tile + tile / 2;
+                            const targetY = this.tileY * tile + tile / 2;
+
+                            const lerpFactor = 0.2; // 0.1–0.3 feels good
+
+                            this.renderX = lerp(this.renderX, targetX, lerpFactor);
+                            this.renderY = lerp(this.renderY, targetY, lerpFactor);
+                        }
+
+
+                        draw(context, canvas, amount_of_tiles) {
+                            const tile = canvas.height / amount_of_tiles;
+                            const scale = tile / 106;
+
+                            drawGhost(  
+                                this.renderX - tile / 1.3,
+                                this.renderY - tile / 1.2,
+                                scale,
+                                this.color
+                            );
+                        }
+                    }
+
+
+
+                    
+/*
+                        if (player.mouth_open==false){
+                            context.arc(
+                            (player_x*canvas.height/32)+(canvas.height/32)/2,
+                            (player_y*canvas.height/32)+(canvas.height/32)/2,
+                            canvas.height/32/2.3,
+                            0 * Math.PI,
+                            5 * Math.PI );
+                        }
+                        else{
+                        context.arc(
+                            (player_x*canvas.height/32)+(canvas.height/32)/2,
+                            (player_y*canvas.height/32)+(canvas.height/32)/2,
+                            canvas.height/32/2.3,
+                            .2 * Math.PI,
+                            1.8 * Math.PI );
+                        }
+                        
+                    }*/
+
+                    function drawBackground() {
+                        context.fillStyle = "black";
+                        context.fillRect(0,0,canvas.width,canvas.height);
+                    }
+                    function drawHeart(x, y, size) {
+                        context.save();
+                        context.translate(x, y);
+                        context.scale(size, size);
+
+                        context.fillStyle = "red";
+                        context.beginPath();
+                        context.moveTo(0, -0.3);
+                        context.bezierCurveTo(-0.5, -0.8, -1.2, -0.1, 0, 0.8);
+                        context.bezierCurveTo(1.2, -0.1, 0.5, -0.8, 0, -0.3);
+                        context.closePath();
+                        context.fill();
+
+                        context.restore();
+                    }
+
+
+                    function drawGUI() {
+                        context.fillStyle = "red";
+                        context.font = `bold ${canvas.height * 0.034}px Arial`;
+
+                        /*context.fillText("Lives: " + lives, 24, 48);*/
+                        for (let i = 1; i <= lives; i++){
+                            drawHeart(i*canvas.height*0.0416, canvas.height*0.0416, canvas.height*0.0278);
+                        }
+                        
+                        context.fillText("SCORE: " + score, canvas.height*0.0278, canvas.height*0.111);
+                    }
+
+                    let game_map=[[]];
+                    let random_x=0;
+                    let random_y=0;
+                    function createGameMap(){
+                        for (let i=0;i<amount_of_tiles;i++){
+                            game_map[i]=[];
+
+                                 for (let j=0;j<amount_of_tiles;j++){
+                                /*if(Math.floor(Math.random() * 15)==0){
+                                    game_map[i][j]=1;
+                                }*/
+                                if (true) {
+                                game_map[i][j]=0;
+                                }
+
+                            }
+                        }
+
+                        let amount_of_lines=16;
+                        let line_length=4;
+                            for (let k=0;k<amount_of_lines;k++){
+                                
+                                random_x=Math.floor(Math.random() * amount_of_tiles);
+                                random_y=Math.floor(Math.random() * amount_of_tiles);
+
+                                game_map[random_x][random_y]=1;
+                                for (let l=0;l<Math.floor(Math.random() * line_length/3)+line_length/1.5;l++){
+                                    if (random_x+l<amount_of_tiles && random_y+l<amount_of_tiles){
+                                    game_map[random_x+l][random_y]=1;}
+                                    
+                                    }
+                                    
+
+                                random_x=Math.floor(Math.random() * amount_of_tiles);
+                                random_y=Math.floor(Math.random() * amount_of_tiles);
+
+                                game_map[random_x][random_y]=1;
+                                for (let m=0;m<Math.floor(Math.random() * line_length/3)+line_length/1.5;m++){
+                                    if (random_x+m<amount_of_tiles && random_y+m<amount_of_tiles){
+                                    game_map[random_x][random_y+m]=1;}
+                                    
+                                    }
+                                
+
+                            
+                            
+                            
+                        }
+
+
+                    }
+
+                    function getPlayerTarget() {
+                        const tile = canvas.height / amount_of_tiles;
+                        return {
+                            x: player_x * tile + tile / 2,
+                            y: player_y * tile + tile / 2
+                        };
+                    }
+
+                        let smoothness = 15;
+                    
+                    function updatePlayerSmooth(delta) {
+
+                        const target = getPlayerTarget();
+
+                        player_render_x = lerp(
+                            player_render_x,
+                            target.x,
+                            1 - Math.exp(-smoothness * delta)
+                        );
+
+                        player_render_y = lerp(
+                            player_render_y,
+                            target.y,
+                            1 - Math.exp(-smoothness * delta)
+                        );
+                        smoothness = 15;
+
+                    }
+
+
+
+                    function drawMap(){
+                        for (let i=0;i<amount_of_tiles;i++){
+
+                            for (let j=0;j<amount_of_tiles;j++){
+                                if (true){
+
+                                    context.fillStyle="black";
+
+                                    context.fillRect(i*canvas.height/amount_of_tiles+1,j*canvas.height/amount_of_tiles+1,canvas.height/amount_of_tiles-2,canvas.height/amount_of_tiles-2);
+                                }
+                                if(game_map[i][j]==1){
+                                    context.fillStyle="blue";
+                                    context.beginPath();
+                                    context.arc(i*canvas.height/amount_of_tiles+canvas.height/amount_of_tiles/2, j*canvas.height/amount_of_tiles+canvas.height/amount_of_tiles/2, canvas.height/amount_of_tiles/4, 0, 2 * Math.PI);
+                                    context.closePath();
+                                    context.fill();
+
+
+
+                                    /*context.fillStyle="black";
+                                    context.fillRect(i*20+1,j*20+1,18,18);*/
+                                }
+                                /*if(game_map[i][j]==0){*/
+                                
+                            }
+                        }
+                    }
+
+                    function setupRestartListener() {
+                        document.addEventListener(
+                            "keydown",
+                            () => {
+                                
+                            document.location.reload();
+                                
+                            },
+                            { once: true }
+                        );
+                    }
+
+                    function checkEvents(){
+                        /*console.log(game_map)*/
+                        if(game_map[player_x][player_y]==1){
+                            score+=1;
+                            game_map[player_x][player_y]=0;
+                        }
+
+                        if (playerIsCaught){
+                            
+                            if (lives==1){
+
+
+                                setupRestartListener();
+                                return 1;
+                            }
+
+                            lives-=1;
+                            
+                            player_x = amount_of_tiles/2;
+                            player_y = amount_of_tiles/2;
+                            smoothness=10000;
+                            createGhosts();
+
+
+                            playerIsCaught=false;
+
+                        }
+
+                    }
+
+
+                    function findDistance(x1, y1, x2, y2){
+                        return Math.sqrt((x2-x1)**2 + (y2-y1)**2);
+                    }
+
+                    function clarify_height(){
+                        
+/* I end up not using canvas.width here because the game is a square :) AND the two variables aer the same */
+                        
+                        context.clearRect(0, 0, canvas.width, canvas.height);
+                        if (window.innerHeight > window.innerWidth) {
+                            canvas.width  = window.innerWidth;
+                            canvas.height = window.innerWidth;
+                        }
+                        else{
+                            canvas.width  = window.innerHeight;
+                            canvas.height = window.innerHeight;
+                        }
+                        canvas.width-=10;
+                        canvas.height-=10;
+                    }
+                    let angle=0;
+
+                    let player_y_plus_previous=false;
+                    let player_y_minus_previous=false;
+                    let player_x_minus_previous=false;
+                    let player_x_plus_previous=false;
+                    let movingSpeed=5; //the lower the faster
+                    function playerMovementandAnimation(){
+                        if (false){
+
+
+
+                            return angle;
+                        }
+                        
+
+                                                   
+                        if (fps%movingSpeed==0){
+                        if(player_y_plus_previous){
+                            if (player_y<amount_of_tiles-1){
+                                player_y += 1;
+                            }
+                            else{
+                                smoothness=10000;
+                                player_y=0;
+                            }
+                          
+                            angle= 90;
+                            player_y_plus_previous=false;
+                            
+                            
+                        } 
+                        
+                        if(player_y_minus_previous){
+                            if (player_y>0){
+                                player_y -= 1;
+                            }
+                            else{
+                                smoothness=10000;
+
+                                player_y=amount_of_tiles-1;
+                            }
+                         
+                            angle= 270;
+                            player_y_minus_previous=false;
+                        } 
+                        
+                        if(player_x_plus_previous){
+                            if (player_x<amount_of_tiles-1){
+                                player_x+=1;
+                            }
+                            else{
+                                smoothness=10000;
+
+                                player_x=0;
+                            }
+                            
+                            angle= 0;
+                            player_x_plus_previous=false;
+                        } 
+
+                        if(player_x_minus_previous){
+                            if (player_x>0){
+                                player_x-=1;
+                            }
+                            else{
+                                smoothness=10000;
+
+                                player_x=amount_of_tiles-1;
+                            }
+                            angle=180
+
+                            player_x_minus_previous=false;
+                        }
+                        
+                        }
+                        
+                        /*i actually dont know, WHY it skips 2 tiles sometimes. it just does it i guess..*/
+                        if(( player_y_plus) && !player_y_plus_previous ){
+                            player_y_plus_previous=true;
+                            
+                            
+                        } 
+                        
+                        if(( player_y_minus)&& !player_y_minus_previous ){
+                            player_y_minus_previous=true;
+                        } 
+                        
+                        if(( player_x_plus) && !player_x_plus_previous){
+                            player_x_plus_previous=true;
+                        } 
+
+                        if(( player_x_minus) && !player_x_minus_previous ){
+                            player_x_minus_previous=true;
+                        }
+
+                    
+
+                        
+                    
+                        return angle;
+                    }
+
+
+ 
+                    let distance_move=0;
+                    function playerCursorMovement(){
+                        
+                        if (fps%movingSpeed!=0 ){
+                            return angle;
+                        }
+                        
+                        const tile = canvas.height / amount_of_tiles;
+                        distance_move=findDistance(player_x*tile,player_y*tile,current_x,current_y)
+                        
+                        const array_of_directions=[];
+
+                        array_of_directions.push(findDistance((player_x+1)*tile, player_y*tile, current_x, current_y));
+                        array_of_directions.push(findDistance((player_x-1)*tile, player_y*tile, current_x, current_y));
+                        array_of_directions.push(findDistance(player_x*tile, (player_y+1)*tile, current_x, current_y));
+                        array_of_directions.push(findDistance(player_x*tile, (player_y-1)*tile, current_x, current_y));
+
+                        const min_distance=Math.min(...array_of_directions);
+                        const direction_index=array_of_directions.indexOf(min_distance);
+
+                        if (direction_index==0){
+                            if (player_x<amount_of_tiles-1){
+                                player_x+=1;
+                            }
+                            else{
+                                smoothness=10000;
+
+                                player_x=0;
+                            }
+                            
+                            angle= 0;
+                        }
+                        else if (direction_index==1){
+                            if (player_x>0){
+                                player_x-=1;
+                            }
+                            else{
+                                smoothness=10000;
+
+                                player_x=amount_of_tiles-1;
+                            }
+                            angle=180
+                        }
+                        else if (direction_index==2){
+                            if (player_y<amount_of_tiles-1){
+                                player_y += 1;
+                            }
+                            else{
+                                smoothness=10000;
+                                player_y=0;
+                            }
+                            angle=90;
+                        }
+                        else if (direction_index==3){
+                            if (player_y>0){
+                                player_y-=1;
+                            }
+                            else{
+                                smoothness=10000;
+                                player_y=amount_of_tiles-1;
+                            }
+                            angle=270;
+                        }
+
+
+
+                        /*if (findDistance((player_x-1)*tile,player_y*tile,current_x,current_y)<distance_move ){ 
+                            if (player_x>0){
+                                player_x-=1;
+                            }
+                            else{
+                                smoothness=10000;
+
+                                player_x=amount_of_tiles-1;
+                            }
+                            angle=180
+
+                        }
+                        else if (findDistance((player_x+1)*tile,player_y*tile,current_x,current_y)<distance_move ){
+                            if (player_x<amount_of_tiles-1){
+                                player_x+=1;
+                            }
+                            else{
+                                smoothness=10000;
+
+                                player_x=0;
+                            }
+                            
+                            angle= 0;
+                        }
+                        else if (findDistance(player_x*tile,(player_y+1)*tile,current_x,current_y)<distance_move){
+                            if (player_y<amount_of_tiles-1){
+                                player_y += 1;
+                            }
+                            else{
+                                smoothness=10000;
+                                player_y=0;
+                            }
+                            angle=90;
+
+                        }
+                        else if (findDistance(player_x*tile,(   player_y-1)*tile,current_x,current_y)<distance_move ){
+                            if (player_y>0){
+                                player_y-=1;
+                            }
+                            else{
+                                smoothness=10000;
+                                player_y=amount_of_tiles-1
+                            }
+                            angle=270;
+                        }
+                        */
+
+                        return angle;
+
+
+                    
+                    }
+
+                    let debug_every_x=0;
+                    function printDebug(){
+                        debug_every_x+=1;
+                        if (debug_every_x<30){
+                            return;
+                        }
+                        console.clear();
+                        debug_every_x=0;
+                        console.log("player_x: " + player_x + " player_y: " + player_y);
+                        console.log("score: " + score);
+                        console.log("height: " + canvas.height);
+                        console.log("cursor x: " +current_x + "cursor y: " + current_y);
+                        console.log("player x px: " + player_x*canvas.height/amount_of_tiles + " player y px: " + player_y*canvas.height/amount_of_tiles);
+                        console.log("fps: " + fps_show);
+                        console.log("distance from cursors: " + distance_move);
+                        console.log("x+1: " + findDistance((player_x+1)*canvas.height/amount_of_tiles,player_y*canvas.height/amount_of_tiles,current_x,current_y));
+                    }
+                    
+                    function createGhosts(){
+                        ghosts=[];
+                        ghosts.push(new Ghost(1, 1, 'red'));
+                        ghosts.push(new Ghost(amount_of_tiles-2, 1, 'pink'));
+                        ghosts.push(new Ghost(1, amount_of_tiles-2, 'cyan'));
+                        ghosts.push(new Ghost(amount_of_tiles-2, amount_of_tiles-2, 'orange'));
+                    }
+
+                    createGhosts();
+
+                    createGameMap();
+                    let drawing=true;
+                    function draw() {
+
+                        clarify_height();
+                        drawBackground();
+                        drawMap();
+                        drawGUI();
+
+                        angle=playerMovementandAnimation();
+                        drawPlayer(player_render_x, player_render_y, angle * Math.PI / 180);
+
+                        
+                        if (mode=="cursor"){
+                            playerCursorMovement();
+
+                        }
+                        /*the controls might be a bit confusing but if you want to control 
+                        the player with your cursor, you have to click the screen
+                        if you want to switch to the keyboard controls, you have to press any of the arrows*/
+
+                             /*      
+                        
+                        drawGhosts();*/
+                        for (const ghost of ghosts) {
+                            ghost.do();
+                            ghost.update(canvas, amount_of_tiles);
+                            ghost.draw(context, canvas, amount_of_tiles);
+                        }
+                        
+
+                        
+                        if (checkEvents()===1){
+                            drawing=false;
+                            context.fillStyle = "red";
+                            context.font = `bold ${canvas.height * 0.068}px Arial`;
+
+                            context.fillText("GAME OVER " , canvas.height/3, canvas.height/2.4);
+                            context.fillText("SCORE: " + score, canvas.height/3, canvas.height/2);
+                            
+                            
+                            return;
+
+                            
+
+                        }
+
+                        printDebug();
+                    }
+
+
+
+                    let key_is_down=false;
+                    let player_y_plus=false;
+                    let player_y_minus=false;
+                    let player_x_minus=false;
+                    let player_x_plus=false;
+                    document.addEventListener("keyup", function(event) {
+
+                        if(event.key === "ArrowUp"){
+                            player_y_minus = false;
+                            
+                        }
+                        if(event.key === "ArrowDown"){
+                            player_y_plus = false;
+                            
+                        }
+                        if(event.key === "ArrowLeft"){
+                            player_x_minus = false;
+                        }
+                        if(event.key === "ArrowRight"){
+                            player_x_plus = false;
+                        }
+
+                        key_is_down=false;
+                    });
+                    
+                    
+
+
+                    document.addEventListener('keydown', function(event) {
+                            if (event.repeat) return;
+                                mode="keyboard"
+                               key_is_down = true;
+
+
+                                if(event.key === "ArrowUp"){
+                                    player_y_minus = true;
+                                }
+                                if(event.key === "ArrowDown"){
+                                    player_y_plus = true;
+                                }
+                                if(event.key === "ArrowLeft"){
+                                    player_x_minus = true;
+                                }
+                                if(event.key === "ArrowRight"){
+
+                                    player_x_plus = true;
+                                
+                                }
+  
+                        
+
+                            });
+                    function lerp(start, end, amount) {
+                        return start + (end - start) * amount;
+                    }
+                    let fps_show=0;
+                    let fps=0;
+                    let lastTime = performance.now();
+                    let seconds=performance.now();
+                    async function mainLoop() {
+                        while (true) {
+
+                            
+                            const now = performance.now();
+                            const delta = (now - lastTime) / 1000; // seconds
+                            if (now-seconds>=1000){
+                                seconds=now;
+                                fps_show=fps;
+
+                                fps=0;
+
+                            }
+                            lastTime = now;
+                            fps++;
+                            if (!drawing){
+                                await sleep(1000/100);
+                                continue;
+                            }
+                            draw();
+                            updatePlayerSmooth(delta);
+
+                            await sleep(1000/100-(now - lastTime));
+
+                                                    //await sleep(5);
+
+                        }
+                    }
+                    mainLoop();
+                </script>
+
+        </body>
+
+
+
+    </html>
